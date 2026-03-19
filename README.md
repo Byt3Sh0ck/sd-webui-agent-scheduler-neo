@@ -1,6 +1,6 @@
 # Agent Scheduler Neo
 
-This Fork was created to fix this Extension to work with gradio 4.x so it can be used again in Forge Neo
+This Fork was created to fix the Agent Schedule Extension to work with gradio 4.x so it can be used again in Forge Neo
 I fixed it by using Claude.
 
 Big Thanks to https://github.com/supersonic13 for its initial work!
