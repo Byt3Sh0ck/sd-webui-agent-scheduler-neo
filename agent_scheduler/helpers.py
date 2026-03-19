@@ -101,13 +101,19 @@ def get_components_by_ids(root: Block, ids: List[int]):
     return components
 
 
+def _extract_target_id(t) -> int:
+    if isinstance(t, tuple) and len(t) == 2 and isinstance(t[0], int):
+        return t[0]
+    if isinstance(t, tuple) and len(t) == 2 and hasattr(t[0], '_id'):
+        return t[0]._id
+    if hasattr(t, '_id'):
+        return t._id
+    if hasattr(t, '__self__') and hasattr(t.__self__, '_id'):
+        return t.__self__._id
+    return None
+
+
 def get_default_config_dependencies(root: Block):
-    """
-    Kompatibilitaetsfunktion fuer alte (A1111) und neue (Forge Neo) Gradio-Versionen.
-    Alte API: dependencies als Liste von dicts in root.default_config.get_config()
-    Neue API: root.fns ist ein Dict von BlockFunction-Objekten, kein dependencies-Feld mehr.
-    """
-    # Neue Gradio-API: fns direkt in altes Format konvertieren
     if hasattr(root, 'fns') and root.fns:
         result = []
         for fn in root.fns.values():
@@ -116,10 +122,9 @@ def get_default_config_dependencies(root: Block):
             targets = []
             if hasattr(fn, 'targets') and fn.targets:
                 for t in fn.targets:
-                    if isinstance(t, tuple):
-                        targets.append(t)
-                    elif hasattr(t, '_id'):
-                        targets.append((t._id, 'click'))
+                    cid = _extract_target_id(t)
+                    if cid is not None:
+                        targets.append((cid, 'click'))
             dep = {
                 'targets': targets,
                 'inputs': [c._id for c in inputs if hasattr(c, '_id')],
@@ -128,7 +133,6 @@ def get_default_config_dependencies(root: Block):
             }
             result.append(dep)
         return result
-    # Alte Gradio-API (klassisches A1111)
     try:
         return root.default_config.get_config().get('dependencies') or []
     except Exception:

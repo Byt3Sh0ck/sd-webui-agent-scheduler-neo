@@ -72,7 +72,6 @@ init_db()
 class Script(scripts.Script):
     def __init__(self):
         super().__init__()
-        script_callbacks.on_app_started(lambda block, _: self.on_app_started(block))
         self.checkpoint_override = checkpoint_current
         self.generate_button = None
         self.enqueue_row = None
@@ -155,60 +154,52 @@ class Script(scripts.Script):
         dependency: dict = None
         cnet_dependency: dict = None
         UiControlNetUnit = None
+
         for d in dependencies:
             if len(d["outputs"]) == 1:
                 outputs = get_components_by_ids(root, d["outputs"])
-                output = outputs[0]
-                if isinstance(output, gr.State) and type(output.value).__name__ == "UiControlNetUnit":
-                    cnet_dependency = d
-                    UiControlNetUnit = type(output.value)
+                if outputs:
+                    output = outputs[0]
+                    if isinstance(output, gr.State) and type(output.value).__name__ == "UiControlNetUnit":
+                        cnet_dependency = d
+                        UiControlNetUnit = type(output.value)
 
-            elif len(d["outputs"]) == 4:
-                dependency = d
+        # Haupt-dependency: meisten Inputs, mehr als 1 Output
+        non_cnet = [d for d in dependencies if d is not cnet_dependency and len(d["outputs"]) > 1]
+        if not non_cnet:
+            non_cnet = [d for d in dependencies if d is not cnet_dependency]
+        if non_cnet:
+            dependency = max(non_cnet, key=lambda d: len(d["inputs"]))
 
         if dependency is None:
-            log.warning("[AgentScheduler] Could not find generate dependency (outputs==4). Trying fallback: largest output count.")
-            if dependencies:
-                dependency = max(dependencies, key=lambda d: len(d["outputs"]))
-            else:
-                log.error("[AgentScheduler] No dependencies found for generate button. Cannot bind Enqueue button.")
-                return
+            log.error("[AgentScheduler] No dependency found, cannot bind Enqueue button.")
+            return
+
+        # fn_block.inputs auf self speichern damit wrap_register_ui_task sie nutzen kann
+        if "_fn" in dependency:
+            fn_block = dependency["_fn"]
+        else:
+            fn_block = next(fn for fn in root.fns.values() if compare_components_with_ids(fn.inputs, dependency["inputs"]))
+
+        fn_inputs = list(fn_block.inputs)
+        new_inputs = [self.checkpoint_dropdown] + fn_inputs
+        log.info("[AgentScheduler] bind_enqueue_button: registering click with " + str(len(new_inputs)) + " inputs")
 
         with root:
             if self.checkpoint_dropdown is not None:
                 self.checkpoint_dropdown.change(fn=self.on_checkpoint_changed, inputs=[self.checkpoint_dropdown])
 
-            # Neue Gradio-API: _fn ist bereits das BlockFunction-Objekt
-            if "_fn" in dependency:
-                fn_block = dependency["_fn"]
-            else:
-                fn_block = next(fn for fn in root.fns.values() if compare_components_with_ids(fn.inputs, dependency["inputs"]))
             fn = self.wrap_register_ui_task()
-            inputs = fn_block.inputs.copy()
-            inputs.insert(0, self.checkpoint_dropdown)
-            args = dict(
+            _js_fn = "(...args) => submit_enqueue_img2img(...args)" if is_img2img else "(...args) => submit_enqueue(...args)"
+            self.submit_button.click(
                 fn=fn,
-                _js="submit_enqueue_img2img" if is_img2img else "submit_enqueue",
-                inputs=inputs,
+                _js=_js_fn,
+                inputs=new_inputs,
                 outputs=None,
                 show_progress=False,
             )
 
-            self.submit_button.click(**args)
 
-            if cnet_dependency is not None:
-                if "_fn" in cnet_dependency:
-                    cnet_fn_block = cnet_dependency["_fn"]
-                else:
-                    cnet_fn_block = next(
-                        fn for fn in root.fns.values() if compare_components_with_ids(fn.inputs, cnet_dependency["inputs"])
-                    )
-                self.submit_button.click(
-                    fn=UiControlNetUnit,
-                    inputs=cnet_fn_block.inputs,
-                    outputs=cnet_fn_block.outputs,
-                    queue=False,
-                )
     
     def dump(self, obj):
         for attr in dir(obj):
@@ -219,9 +210,21 @@ class Script(scripts.Script):
             if len(args) == 0:
                 raise Exception("Invalid call")
 
-            checkpoint: str = args[0]
-            task_id = args[1]
-            args = args[1:]
+            # A1111: args[0]=checkpoint, args[1]=task_id, args[2:]=generate_args
+            # Forge Neo: args[0]=task_id, args[1:]=generate_args (kein checkpoint im args[0])
+            # Erkennung: task_id beginnt mit "task(" oder ist ein UUID
+            if len(args) >= 2 and isinstance(args[1], str) and (
+                args[1].startswith("task(") or
+                (len(args[1]) > 8 and "-" in args[1]) or
+                args[1] == queue_with_every_checkpoints
+            ):
+                checkpoint: str = args[0]
+                task_id = args[1]
+                args = args[1:]
+            else:
+                checkpoint: str = self.checkpoint_override
+                task_id = args[0]
+                args = args[1:]
             task_name = None
 
             if task_id == queue_with_every_checkpoints:
@@ -794,6 +797,17 @@ def on_app_started(block: gr.Blocks, app):
     task_runner.execute_pending_tasks_threading()
     regsiter_apis(app, task_runner)
     task_runner.on_task_cleared(lambda: remove_old_tasks())
+
+    try:
+        from modules import scripts as _scripts
+        for script_runner in [_scripts.scripts_txt2img, _scripts.scripts_img2img]:
+            if script_runner is None:
+                continue
+            for script in script_runner.alwayson_scripts:
+                if script.__class__.__name__ == "Script" and script.__class__.__module__ == __name__:
+                    script.on_app_started(block)
+    except Exception as e:
+        log.error(f"[AgentScheduler] Error binding script instances: {e}")
 
     if getattr(shared.opts, "queue_ui_placement", "") == ui_placement_append_to_main and block:
         with block:

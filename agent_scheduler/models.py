@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from typing import Optional, List, Any, Dict
-
 try:
     from pydantic import ConfigDict, BaseModel, Field, field_serializer
     PYDANTIC_V2 = True
@@ -24,12 +23,10 @@ def convert_datetime_to_iso_8601_with_z_suffix(dt: datetime) -> str:
 def transform_to_utc_datetime(dt: datetime) -> datetime:
     return dt.astimezone(tz=timezone.utc)
 
-
 def strip_schema_extra(schema: Dict[str, Any]) -> None:
     props = schema.get("properties", {})
     props.pop("send_images", None)
     props.pop("save_images", None)
-
 
 class QueueStatusAPI(BaseModel):
     limit: Optional[int] = Field(title="Limit", description="The maximum number of tasks to return", default=20)
@@ -69,9 +66,7 @@ class TaskModel(BaseModel):
             return int(dt.timestamp() * 1e3)
 
     class Config:
-        json_encoders = {
-            datetime: lambda dt: int(dt.timestamp() * 1e3)
-        }
+        json_encoders = {datetime: lambda dt: int(dt.timestamp() * 1e3)}
 
 
 class Txt2ImgApiTaskArgs(StableDiffusionTxt2ImgProcessingAPI):

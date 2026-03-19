@@ -20,10 +20,10 @@ from fastapi.exceptions import HTTPException
 from pydantic import BaseModel
 
 def _model_to_dict(model):
-    """Kompatibilitätsfunktion für pydantic v1 (.dict()) und v2 (.model_dump())"""
     if hasattr(model, "model_dump"):
         return model.model_dump()
     return model.dict()
+
 
 from modules import shared, progress, sd_models, sd_samplers
 
