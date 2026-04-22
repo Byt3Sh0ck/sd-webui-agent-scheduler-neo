@@ -375,17 +375,17 @@ def get_task_results(task_id: str, image_idx: int = None):
             infotext = f"Failed to load task result: {str(e)}"
 
     res = (
-        gr.Textbox.update(infotext, visible=infotext is not None),
-        gr.Row.update(visible=galerry is not None),
+        gr.update(value=infotext, visible=infotext is not None),
+        gr.update(visible=galerry is not None),
     )
 
     if image_idx is None:
         geninfo = json.dumps(geninfo) if geninfo else None
         res += (
             galerry,
-            gr.Textbox.update(geninfo),
-            gr.File.update(None, visible=False),
-            gr.HTML.update(None),
+            gr.update(value=geninfo),
+            gr.update(value=None, visible=False),
+            gr.update(value=None),
         )
 
     return res
@@ -713,8 +713,8 @@ def on_ui_settings():
 
         return (
             shortcut,
-            gr.CheckboxGroup.update(interactive=not disabled),
-            gr.Dropdown.update(interactive=not disabled),
+            gr.update(interactive=not disabled),
+            gr.update(interactive=not disabled),
         )
 
     def enqueue_keyboard_shortcut_ui(**_kwargs):
